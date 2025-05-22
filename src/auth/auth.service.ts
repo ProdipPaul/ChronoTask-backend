@@ -1,9 +1,15 @@
 // src/auth/auth.service.ts
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  BadRequestException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import { UsersService } from '../users/users.service'; // Path to your UsersService
-import { User } from '../users/entities/user.entity';
+import { UsersService } from '../user/user.service'; // Corrected path
+import { User } from '../../db/core/schema'; // Standardized User type from Drizzle schema
+import { LoginDto } from './dto/Login.dto';
+import { RegisterDto } from './dto/Register.dto';
 
 @Injectable()
 export class AuthService {
@@ -12,36 +18,55 @@ export class AuthService {
     private readonly jwtService: JwtService,
   ) {}
 
-  // Validates username/password. Used by LocalStrategy.
-  async validateUser(username: string, pass: string): Promise<any> {
-    const user = await this.usersService.findOne(username);
+  async validateUser(
+    email: string,
+    pass: string,
+  ): Promise<Omit<User, 'password'> | null> {
+    const user = await this.usersService.findOne(email);
     if (user && (await bcrypt.compare(pass, user.password))) {
-      const { password, ...result } = user; // Destructure to exclude password
-      return result; // Return user object (without password)
+      const { password, ...result } = user;
+      return result;
     }
     return null;
   }
 
-  // Generates the JWT upon successful login or registration.
-  async login(user: User): Promise<{ accessToken: string }> {
-    // Payload for the JWT: typically user ID and username.
-    // Ensure 'user.id' exists and is unique for the 'sub' claim.
-    const payload = { username: user.username, sub: user.id };
+  async signIn(loginDto: LoginDto): Promise<{ accessToken: string }> {
+    const user = await this.validateUser(loginDto.email, loginDto.password);
+    if (!user) {
+      throw new UnauthorizedException(
+        'Invalid credentials. Please check your email and password.',
+      );
+    }
+    // The 'user' from validateUser is Omit<User, 'password'>.
+    // It should have 'id' and 'email' for the JWT payload.
+    return this.generateAccessToken(
+      user as Pick<User, 'id' | 'email' | 'name'>,
+    ); // Cast to ensure properties for payload
+  }
+
+  // Renamed 'login' to 'generateAccessToken' for clarity, as it's about token generation.
+  async generateAccessToken(
+    userPayload: Pick<User, 'id' | 'email' | 'name'>,
+  ): Promise<{ accessToken: string }> {
+    const payload = {
+      email: userPayload.email,
+      sub: userPayload.id,
+      name: userPayload.name,
+    };
     return {
-      accessToken: this.jwtService.sign(payload), // Signs the token with your secret
+      accessToken: this.jwtService.sign(payload),
     };
   }
 
-  // Handles new user registration.
-  async register(createUserDto: any): Promise<{ accessToken: string }> {
-    // Check if user already exists
-    const existingUser = await this.usersService.findOne(
-      createUserDto.username,
-    );
+  async register(registerDto: RegisterDto): Promise<{ accessToken: string }> {
+    const existingUser = await this.usersService.findOne(registerDto.email);
     if (existingUser) {
-      throw new UnauthorizedException('Username already taken.'); // Or BadRequestException
+      throw new BadRequestException('User with this email already exists.');
     }
-    const newUser = await this.usersService.create(createUserDto);
-    return this.login(newUser); // Log in the newly created user immediately
+    const newUser = await this.usersService.create(registerDto);
+    // newUser from usersService.create is the full User entity.
+    // We need to pass the correct payload structure to generateAccessToken.
+    const { password, ...userPayload } = newUser; // Exclude password for payload generation
+    return this.generateAccessToken(userPayload);
   }
 }
