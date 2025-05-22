@@ -8,6 +8,9 @@ import {
   primaryKey,
 } from 'drizzle-orm/pg-core';
 
+export type User = typeof user.$inferSelect; // Infer the select type
+export type InsertUser = typeof user.$inferInsert; // Infer the insert type
+
 // === User ===
 export const user = pgTable('user', {
   id: uuid('id').primaryKey().defaultRandom(),

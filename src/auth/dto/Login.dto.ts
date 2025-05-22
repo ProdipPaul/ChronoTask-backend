@@ -1,6 +1,13 @@
-// src/auth/dto/login.dto.ts
-// We'll keep it simple for now, just defining the types
+// src/users/dto/create-user.dto.ts
+import { IsString, IsNotEmpty, MinLength } from 'class-validator';
+
 export class LoginDto {
-  email: string;
+  @IsString()
+  @IsNotEmpty()
+  username: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(6, { message: 'Password must be at least 6 characters long' })
   password: string;
 }
